@@ -252,6 +252,27 @@ func TestCmdCreate_RejectsBadSlug(t *testing.T) {
 	})
 }
 
+func TestCmdCreate_WithAddFlag(t *testing.T) {
+	_, src := makeRepoPair(t)
+
+	tasks := t.TempDir()
+	runIn(t, tasks, func() {
+		if err := cmdCreate([]string{"feat", "-a", src}); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	taskDir := filepath.Join(tasks, "feat")
+	wt := filepath.Join(taskDir, filepath.Base(src))
+	if !isWorktree(wt) {
+		t.Errorf("expected worktree at %s", wt)
+	}
+	br, _ := runGit(wt, "branch", "--show-current")
+	if br != "feat" {
+		t.Errorf("worktree on branch %q, want feat", br)
+	}
+}
+
 func TestCmdAdd_HappyPath(t *testing.T) {
 	_, src := makeRepoPair(t)
 

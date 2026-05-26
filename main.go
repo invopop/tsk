@@ -75,7 +75,8 @@ func usage(w *os.File) {
 	fmt.Fprint(w, `tsk — multi-repo task workspaces
 
 usage:
-  tsk create [<ref>] <slug>          Create a task directory in cwd
+  tsk create [<ref>] <slug> [-a <repo-path> ...]
+                                     Create a task directory in cwd
   tsk add <repo-path> [<repo-path> ...] [-b <branch>]
                                      Add worktrees to the current task
   tsk status                         git status summary across all worktrees
@@ -90,9 +91,20 @@ usage:
 // ---- cmdCreate -------------------------------------------------------------
 
 func cmdCreate(args []string) error {
+	// -a is variadic, so pull it out before flag parsing.
+	var addPaths []string
+	mainArgs := args
+	for i, a := range args {
+		if a == "-a" {
+			mainArgs = args[:i]
+			addPaths = args[i+1:]
+			break
+		}
+	}
+
 	flags := flag.NewFlagSet("create", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
-	if err := flags.Parse(args); err != nil {
+	if err := flags.Parse(mainArgs); err != nil {
 		return err
 	}
 	rest := flags.Args()
@@ -104,7 +116,7 @@ func cmdCreate(args []string) error {
 	case 2:
 		ref, slug = rest[0], rest[1]
 	default:
-		return errors.New("usage: tsk create [<ref>] <slug>")
+		return errors.New("usage: tsk create [<ref>] <slug> [-a <repo-path> ...]")
 	}
 
 	if ref != "" && !validSlug(ref) {
@@ -131,6 +143,7 @@ func cmdCreate(args []string) error {
 		return err
 	}
 
+	fmt.Printf("creating task %s\n", dirName)
 	if err := os.Mkdir(taskDir, 0o755); err != nil {
 		return err
 	}
@@ -142,6 +155,13 @@ func cmdCreate(args []string) error {
 	}
 
 	fmt.Println(taskDir)
+
+	for _, p := range addPaths {
+		if err := addOne(taskDir, p, slug); err != nil {
+			return fmt.Errorf("%s: %w", p, err)
+		}
+	}
+
 	return nil
 }
 
@@ -202,6 +222,7 @@ func addOne(taskRoot, repoPath, branch string) error {
 		return err
 	}
 
+	fmt.Printf("fetching %s/%s for %s...\n", remote, baseBranch, name)
 	if _, err := runGit(src, "fetch", remote, baseBranch); err != nil {
 		return fmt.Errorf("fetch: %w", err)
 	}
@@ -214,6 +235,7 @@ func addOne(taskRoot, repoPath, branch string) error {
 		return fmt.Errorf("branch %q already exists in source repo (pass -b to pick another)", branch)
 	}
 
+	fmt.Printf("creating worktree %s [%s]...\n", name, branch)
 	// `-c branch.autoSetupMerge=false` keeps the new branch from inheriting
 	// `origin/main` as its upstream — we want "never pushed" to remain
 	// detectable until the user actually pushes it.
