@@ -1,0 +1,4 @@
+/tsk
+*.test
+*.out
+.DS_Store
