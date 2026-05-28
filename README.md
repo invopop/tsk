@@ -9,7 +9,7 @@ worktree per repo, all on a fresh branch off `origin/main`.
 ## Install
 
 ```sh
-go install github.com/cavalle/tsk@latest
+go install github.com/invopop/tsk
 ```
 
 ## A 60-second tour
@@ -84,4 +84,4 @@ can run it from outside.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+Apache-2.0 — see [LICENSE](LICENSE).
