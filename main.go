@@ -26,7 +26,7 @@ import (
 const version = "0.1.0"
 
 const remote = "origin"
-const baseBranch = "main"
+const defaultBase = "main"
 
 const metaFile = ".tsk.yaml"
 
@@ -75,9 +75,9 @@ func usage(w *os.File) {
 	fmt.Fprint(w, `tsk — multi-repo task workspaces
 
 usage:
-  tsk create [<ref>] <slug> [-a <repo-path> ...]
+  tsk create [<ref>] <slug> [--from <branch>] [-a <repo-path> ...]
                                      Create a task directory in cwd
-  tsk add <repo-path> [<repo-path> ...] [-b <branch>]
+  tsk add <repo-path> [<repo-path> ...] [-b <branch>] [--from <branch>]
                                      Add worktrees to the current task
   tsk status                         git status summary across all worktrees
   tsk rm [-f] <repo-path>            Remove one worktree from the current task
@@ -104,6 +104,7 @@ func cmdCreate(args []string) error {
 
 	flags := flag.NewFlagSet("create", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
+	from := flags.String("from", defaultBase, "remote branch to base new branches on (used with -a)")
 	if err := flags.Parse(mainArgs); err != nil {
 		return err
 	}
@@ -116,7 +117,7 @@ func cmdCreate(args []string) error {
 	case 2:
 		ref, slug = rest[0], rest[1]
 	default:
-		return errors.New("usage: tsk create [<ref>] <slug> [-a <repo-path> ...]")
+		return errors.New("usage: tsk create [<ref>] <slug> [--from <branch>] [-a <repo-path> ...]")
 	}
 
 	if ref != "" && !validSlug(ref) {
@@ -157,7 +158,7 @@ func cmdCreate(args []string) error {
 	fmt.Println(taskDir)
 
 	for _, p := range addPaths {
-		if err := addOne(taskDir, p, slug); err != nil {
+		if err := addOne(taskDir, p, slug, *from); err != nil {
 			return fmt.Errorf("%s: %w", p, err)
 		}
 	}
@@ -171,12 +172,13 @@ func cmdAdd(args []string) error {
 	flags := flag.NewFlagSet("add", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
 	branch := flags.String("b", "", "branch name to create (defaults to task slug)")
+	from := flags.String("from", defaultBase, "remote branch to base the new branch on")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 	repos := flags.Args()
 	if len(repos) == 0 {
-		return errors.New("usage: tsk add <repo-path> [<repo-path> ...] [-b <branch>]")
+		return errors.New("usage: tsk add <repo-path> [<repo-path> ...] [-b <branch>] [--from <branch>]")
 	}
 
 	cwd, err := os.Getwd()
@@ -198,14 +200,17 @@ func cmdAdd(args []string) error {
 	}
 
 	for _, p := range repos {
-		if err := addOne(taskRoot, p, chosenBranch); err != nil {
+		if err := addOne(taskRoot, p, chosenBranch, *from); err != nil {
 			return fmt.Errorf("%s: %w", p, err)
 		}
 	}
 	return nil
 }
 
-func addOne(taskRoot, repoPath, branch string) error {
+func addOne(taskRoot, repoPath, branch, base string) error {
+	if base == "" {
+		base = defaultBase
+	}
 	src, err := filepath.Abs(repoPath)
 	if err != nil {
 		return err
@@ -222,8 +227,8 @@ func addOne(taskRoot, repoPath, branch string) error {
 		return err
 	}
 
-	fmt.Printf("fetching %s/%s for %s...\n", remote, baseBranch, name)
-	if _, err := runGit(src, "fetch", remote, baseBranch); err != nil {
+	fmt.Printf("fetching %s/%s for %s...\n", remote, base, name)
+	if _, err := runGit(src, "fetch", remote, base); err != nil {
 		return fmt.Errorf("fetch: %w", err)
 	}
 
@@ -237,11 +242,11 @@ func addOne(taskRoot, repoPath, branch string) error {
 
 	fmt.Printf("creating worktree %s [%s]...\n", name, branch)
 	// `-c branch.autoSetupMerge=false` keeps the new branch from inheriting
-	// `origin/main` as its upstream — we want "never pushed" to remain
+	// the base branch as its upstream — we want "never pushed" to remain
 	// detectable until the user actually pushes it.
 	if _, err := runGit(src,
 		"-c", "branch.autoSetupMerge=false",
-		"worktree", "add", "-b", branch, dest, remote+"/"+baseBranch,
+		"worktree", "add", "-b", branch, dest, remote+"/"+base,
 	); err != nil {
 		return err
 	}

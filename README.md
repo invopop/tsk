@@ -54,7 +54,13 @@ Run `tsk create` wherever you want the task to live. The task directory's name i
 source repo by `tsk add` defaults to `<slug>` — the ref is **not** part of the
 branch name.
 
-The base branch is hardcoded to `origin/main`.
+The base branch defaults to `origin/main`. Override it with `--from <branch>`
+on `tsk add` (or `tsk create` when using `-a`):
+
+```sh
+# Base the new worktrees off origin/develop instead of origin/main.
+tsk add ../../gobl.html --from develop
+```
 
 ## `tsk close` is paranoid by default
 
@@ -71,8 +77,10 @@ want to discard.
 ## Commands
 
 ```
-tsk create [<ref>] <slug>          Create a task directory in cwd
-tsk add <repo-path> [...] [-b]     Add worktrees to the current task
+tsk create [<ref>] <slug> [--from <branch>] [-a <repo>...]
+                                   Create a task directory in cwd
+tsk add <repo-path> [...] [-b <branch>] [--from <branch>]
+                                   Add worktrees to the current task
 tsk status                         git status summary across all worktrees
 tsk rm [-f] <repo-path>            Remove one worktree from the current task
 tsk close [-f] <task-path>         Decommission a task: clean worktrees + delete dir

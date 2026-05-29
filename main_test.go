@@ -340,6 +340,45 @@ func TestCmdAdd_CustomBranch(t *testing.T) {
 	}
 }
 
+func TestCmdAdd_FromBranch(t *testing.T) {
+	_, src := makeRepoPair(t)
+
+	// Create a `develop` branch with an extra commit, push it, then
+	// delete the local copy so we can prove the worktree was built from
+	// `origin/develop` (not a local ref).
+	mustRunGit(t, src, "checkout", "-b", "develop")
+	if err := os.WriteFile(filepath.Join(src, "DEV"), []byte("dev\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mustRunGit(t, src, "add", ".")
+	mustRunGit(t, src, "commit", "-m", "dev commit")
+	mustRunGit(t, src, "push", "-u", "origin", "develop")
+	mustRunGit(t, src, "checkout", "main")
+	mustRunGit(t, src, "branch", "-D", "develop")
+
+	tasks := t.TempDir()
+	runIn(t, tasks, func() {
+		if err := cmdCreate([]string{"feat"}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	taskDir := filepath.Join(tasks, "feat")
+	runIn(t, taskDir, func() {
+		if err := cmdAdd([]string{"--from", "develop", src}); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	wt := filepath.Join(taskDir, filepath.Base(src))
+	if _, err := os.Stat(filepath.Join(wt, "DEV")); err != nil {
+		t.Errorf("expected DEV file (from develop) in worktree: %v", err)
+	}
+	br, _ := runGit(wt, "branch", "--show-current")
+	if br != "feat" {
+		t.Errorf("branch = %q, want feat", br)
+	}
+}
+
 func TestCmdRm(t *testing.T) {
 	_, src := makeRepoPair(t)
 
