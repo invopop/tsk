@@ -93,9 +93,9 @@ want to discard.
 ## Commands
 
 ```
-tsk create [<ref>] <slug> [--base <remote>/<branch>] [-a <repo>...]
+tsk create [--base <remote>/<branch>] [<ref>] <slug> [-a <repo>...]
                                    Create a task directory in cwd
-tsk add <repo-path> [...] [-b <branch>] [--base <remote>/<branch>]
+tsk add [--base <remote>/<branch>] [-b <branch>] <repo-path> [...]
                                    Add worktrees to the current task
 tsk status                         git status summary across all worktrees
 tsk rm [-f] <repo-path>            Remove one worktree from the current task
