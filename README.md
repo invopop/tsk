@@ -69,8 +69,6 @@ When `--from` helps:
   off their feature branch keeps your diff focused on your own work instead
   of dragging in theirs, and avoids the "merge their branch into mine, then
   rebase later" dance.
-- **Working against a release/maintenance branch.** Hotfixes or backports
-  belong on top of `release/x.y`, not `main`.
 - **Long-lived integration branches.** When several tasks land into a shared
   `develop` (or similar) before promotion, base new worktrees there so each
   task starts from the state the integration branch is actually in.
