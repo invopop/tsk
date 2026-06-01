@@ -4,7 +4,7 @@ Multi-repo task workspaces backed by git worktrees.
 
 If your work routinely touches a handful of repos at once — services and the
 libraries they share — `tsk` automates the bootstrap: one task directory, one
-worktree per repo, all on a fresh branch off `origin/main`.
+worktree per repo, all on a fresh branch off each repo's default upstream.
 
 ## Install
 
@@ -54,7 +54,28 @@ Run `tsk create` wherever you want the task to live. The task directory's name i
 source repo by `tsk add` defaults to `<slug>` — the ref is **not** part of the
 branch name.
 
-The base branch is hardcoded to `origin/main`.
+The base branch defaults to the first remote's default branch — e.g. on a
+typical clone, `origin/main`, but `tsk` follows whatever the repo is actually
+configured with (`upstream/master` works just the same). Override it with
+`--base <remote>/<branch>` on `tsk add` (or `tsk create` when using `-a`):
+
+```sh
+# Base the new worktrees off origin/develop instead of the default.
+tsk add --base origin/develop ../../gobl.html
+
+The full `<remote>/<branch>` form is required so it's never ambiguous whether
+you mean a local branch or a remote-tracking one.
+
+When `--base` helps:
+
+- **Stacking on an unreleased feature branch.** Your task depends on a
+  colleague's change that is approved but not yet merged to `main`. Branching
+  off their feature branch keeps your diff focused on your own work instead
+  of dragging in theirs, and avoids the "merge their branch into mine, then
+  rebase later" dance.
+- **Long-lived integration branches.** When several tasks land into a shared
+  `develop` (or similar) before promotion, base new worktrees there so each
+  task starts from the state the integration branch is actually in.
 
 ## `tsk close` is paranoid by default
 
@@ -62,7 +83,7 @@ Closing a task removes each worktree and deletes the task directory. Before doin
 that, `close` refuses to touch a worktree if either:
 
 - the working tree is dirty, or
-- the branch was never pushed, or has unpushed commits ahead of `origin/<branch>`.
+- the branch was never pushed, or has unpushed commits ahead of its upstream.
 
 This is the whole point: it is easy to forget that a worktree had local-only
 work. `--force` is the explicit escape hatch for the cases where you really do
@@ -71,8 +92,10 @@ want to discard.
 ## Commands
 
 ```
-tsk create [<ref>] <slug>          Create a task directory in cwd
-tsk add <repo-path> [...] [-b]     Add worktrees to the current task
+tsk create [--base <remote>/<branch>] [<ref>] <slug> [-a <repo>...]
+                                   Create a task directory in cwd
+tsk add [--base <remote>/<branch>] [-b <branch>] <repo-path> [...]
+                                   Add worktrees to the current task
 tsk status                         git status summary across all worktrees
 tsk rm [-f] <repo-path>            Remove one worktree from the current task
 tsk close [-f] <task-path>         Decommission a task: clean worktrees + delete dir

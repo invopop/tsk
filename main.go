@@ -25,9 +25,6 @@ import (
 
 const version = "0.1.0"
 
-const remote = "origin"
-const baseBranch = "main"
-
 const metaFile = ".tsk.yaml"
 
 // task is the on-disk schema for .tsk.yaml.
@@ -75,9 +72,9 @@ func usage(w *os.File) {
 	fmt.Fprint(w, `tsk — multi-repo task workspaces
 
 usage:
-  tsk create [<ref>] <slug> [-a <repo-path> ...]
+  tsk create [--base <remote>/<branch>] [<ref>] <slug> [-a <repo-path> ...]
                                      Create a task directory in cwd
-  tsk add <repo-path> [<repo-path> ...] [-b <branch>]
+  tsk add [--base <remote>/<branch>] [-b <branch>] <repo-path> [<repo-path> ...]
                                      Add worktrees to the current task
   tsk status                         git status summary across all worktrees
   tsk rm [-f] <repo-path>            Remove one worktree from the current task
@@ -104,6 +101,7 @@ func cmdCreate(args []string) error {
 
 	flags := flag.NewFlagSet("create", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
+	base := flags.String("base", "", "remote-tracking branch to base new branches on, e.g. origin/main (defaults to the first remote's default branch)")
 	if err := flags.Parse(mainArgs); err != nil {
 		return err
 	}
@@ -116,7 +114,7 @@ func cmdCreate(args []string) error {
 	case 2:
 		ref, slug = rest[0], rest[1]
 	default:
-		return errors.New("usage: tsk create [<ref>] <slug> [-a <repo-path> ...]")
+		return errors.New("usage: tsk create [--base <remote>/<branch>] [<ref>] <slug> [-a <repo-path> ...]")
 	}
 
 	if ref != "" && !validSlug(ref) {
@@ -157,7 +155,7 @@ func cmdCreate(args []string) error {
 	fmt.Println(taskDir)
 
 	for _, p := range addPaths {
-		if err := addOne(taskDir, p, slug); err != nil {
+		if err := addOne(taskDir, p, slug, *base); err != nil {
 			return fmt.Errorf("%s: %w", p, err)
 		}
 	}
@@ -171,12 +169,13 @@ func cmdAdd(args []string) error {
 	flags := flag.NewFlagSet("add", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
 	branch := flags.String("b", "", "branch name to create (defaults to task slug)")
+	base := flags.String("base", "", "remote-tracking branch to base the new branch on, e.g. origin/main (defaults to the first remote's default branch)")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 	repos := flags.Args()
 	if len(repos) == 0 {
-		return errors.New("usage: tsk add <repo-path> [<repo-path> ...] [-b <branch>]")
+		return errors.New("usage: tsk add [--base <remote>/<branch>] [-b <branch>] <repo-path> [<repo-path> ...]")
 	}
 
 	cwd, err := os.Getwd()
@@ -198,20 +197,34 @@ func cmdAdd(args []string) error {
 	}
 
 	for _, p := range repos {
-		if err := addOne(taskRoot, p, chosenBranch); err != nil {
+		if err := addOne(taskRoot, p, chosenBranch, *base); err != nil {
 			return fmt.Errorf("%s: %w", p, err)
 		}
 	}
 	return nil
 }
 
-func addOne(taskRoot, repoPath, branch string) error {
+func addOne(taskRoot, repoPath, branch, base string) error {
 	src, err := filepath.Abs(repoPath)
 	if err != nil {
 		return err
 	}
 	if _, err := runGit(src, "rev-parse", "--git-dir"); err != nil {
 		return fmt.Errorf("not a git repo: %s", src)
+	}
+
+	var baseRemote, baseBranch string
+	if base == "" {
+		baseRemote, baseBranch, err = defaultBase(src)
+		if err != nil {
+			return fmt.Errorf("determining default base branch: %w", err)
+		}
+	} else {
+		var ok bool
+		baseRemote, baseBranch, ok = parseRemoteBranch(base)
+		if !ok {
+			return fmt.Errorf("invalid --base %q (expected <remote>/<branch>, e.g. origin/main)", base)
+		}
 	}
 
 	name := filepath.Base(src)
@@ -222,8 +235,8 @@ func addOne(taskRoot, repoPath, branch string) error {
 		return err
 	}
 
-	fmt.Printf("fetching %s/%s for %s...\n", remote, baseBranch, name)
-	if _, err := runGit(src, "fetch", remote, baseBranch); err != nil {
+	fmt.Printf("fetching %s/%s for %s...\n", baseRemote, baseBranch, name)
+	if _, err := runGit(src, "fetch", baseRemote, baseBranch); err != nil {
 		return fmt.Errorf("fetch: %w", err)
 	}
 
@@ -237,11 +250,11 @@ func addOne(taskRoot, repoPath, branch string) error {
 
 	fmt.Printf("creating worktree %s [%s]...\n", name, branch)
 	// `-c branch.autoSetupMerge=false` keeps the new branch from inheriting
-	// `origin/main` as its upstream — we want "never pushed" to remain
+	// the base branch as its upstream — we want "never pushed" to remain
 	// detectable until the user actually pushes it.
 	if _, err := runGit(src,
 		"-c", "branch.autoSetupMerge=false",
-		"worktree", "add", "-b", branch, dest, remote+"/"+baseBranch,
+		"worktree", "add", "-b", branch, dest, baseRemote+"/"+baseBranch,
 	); err != nil {
 		return err
 	}
@@ -426,13 +439,15 @@ func cmdClose(args []string) error {
 				problems = append(problems, fmt.Sprintf("%s: dirty working tree", w.path))
 			}
 
-			// Refresh remote tracking before checking upstream / ahead count.
-			_, _ = runGit(w.src, "fetch", remote, w.branch)
-
 			up, _ := runGit(w.path, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
 			if up == "" {
 				problems = append(problems, fmt.Sprintf("%s: branch %q has no upstream (never pushed)", w.path, w.branch))
 				continue
+			}
+			// Refresh the remote-tracking ref before counting ahead, otherwise
+			// a stale local view would let a not-yet-pushed branch look caught up.
+			if r, b, ok := parseRemoteBranch(up); ok {
+				_, _ = runGit(w.src, "fetch", r, b)
 			}
 			aheadStr, err := runGit(w.path, "rev-list", "--count", "@{u}..HEAD")
 			if err != nil {
@@ -527,6 +542,61 @@ func runGit(dir string, args ...string) (string, error) {
 		return "", fmt.Errorf("git %s: %w\n%s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
 	}
 	return strings.TrimRight(stdout.String(), "\n"), nil
+}
+
+// parseRemoteBranch splits a string like "origin/dev" into its remote and
+// branch parts on the first slash. Returns ok=false if the input is missing a
+// slash, starts with one, or ends with one. The branch part may contain
+// slashes (e.g. "origin/feature/foo" → "origin", "feature/foo").
+func parseRemoteBranch(s string) (remote, branch string, ok bool) {
+	i := strings.IndexByte(s, '/')
+	if i <= 0 || i == len(s)-1 {
+		return "", "", false
+	}
+	return s[:i], s[i+1:], true
+}
+
+// defaultBase picks the first remote configured in repo (alphabetical, which is
+// git's default `git remote` order) and resolves that remote's default HEAD
+// branch. Tries the locally-cached `refs/remotes/<remote>/HEAD` first, falling
+// back to `git ls-remote --symref` if it isn't set.
+func defaultBase(repo string) (remote, branch string, err error) {
+	out, err := runGit(repo, "remote")
+	if err != nil {
+		return "", "", err
+	}
+	out = strings.TrimSpace(out)
+	if out == "" {
+		return "", "", fmt.Errorf("no remotes configured in %s", repo)
+	}
+	remote = strings.SplitN(out, "\n", 2)[0]
+
+	// Cheap path: the cached remote HEAD set by `git clone` / `git remote set-head`.
+	cached, err := runGit(repo, "symbolic-ref", "--short", "refs/remotes/"+remote+"/HEAD")
+	if err == nil {
+		cached = strings.TrimSpace(cached)
+		if r, b, ok := parseRemoteBranch(cached); ok && r == remote {
+			return r, b, nil
+		}
+	}
+
+	// Fallback: query the remote.
+	ls, err := runGit(repo, "ls-remote", "--symref", remote, "HEAD")
+	if err != nil {
+		return "", "", err
+	}
+	for _, line := range strings.Split(ls, "\n") {
+		if !strings.HasPrefix(line, "ref: ") {
+			continue
+		}
+		// "ref: refs/heads/main\tHEAD"
+		ref := strings.TrimPrefix(line, "ref: ")
+		if tab := strings.IndexByte(ref, '\t'); tab > 0 {
+			ref = ref[:tab]
+		}
+		return remote, strings.TrimPrefix(ref, "refs/heads/"), nil
+	}
+	return "", "", fmt.Errorf("could not determine default branch of remote %q in %s", remote, repo)
 }
 
 func gitBranchExists(repo, branch string) (bool, error) {

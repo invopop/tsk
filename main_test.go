@@ -340,6 +340,139 @@ func TestCmdAdd_CustomBranch(t *testing.T) {
 	}
 }
 
+func TestCmdAdd_BaseBranch(t *testing.T) {
+	_, src := makeRepoPair(t)
+
+	// Create a `develop` branch with an extra commit, push it, then
+	// delete the local copy so we can prove the worktree was built from
+	// `origin/develop` (not a local ref).
+	mustRunGit(t, src, "checkout", "-b", "develop")
+	if err := os.WriteFile(filepath.Join(src, "DEV"), []byte("dev\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mustRunGit(t, src, "add", ".")
+	mustRunGit(t, src, "commit", "-m", "dev commit")
+	mustRunGit(t, src, "push", "-u", "origin", "develop")
+	mustRunGit(t, src, "checkout", "main")
+	mustRunGit(t, src, "branch", "-D", "develop")
+
+	tasks := t.TempDir()
+	runIn(t, tasks, func() {
+		if err := cmdCreate([]string{"feat"}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	taskDir := filepath.Join(tasks, "feat")
+	runIn(t, taskDir, func() {
+		if err := cmdAdd([]string{"--base", "origin/develop", src}); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	wt := filepath.Join(taskDir, filepath.Base(src))
+	if _, err := os.Stat(filepath.Join(wt, "DEV")); err != nil {
+		t.Errorf("expected DEV file (from develop) in worktree: %v", err)
+	}
+	br, _ := runGit(wt, "branch", "--show-current")
+	if br != "feat" {
+		t.Errorf("branch = %q, want feat", br)
+	}
+}
+
+func TestCmdAdd_BaseRejectsMissingSlash(t *testing.T) {
+	_, src := makeRepoPair(t)
+
+	tasks := t.TempDir()
+	runIn(t, tasks, func() {
+		if err := cmdCreate([]string{"feat"}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	taskDir := filepath.Join(tasks, "feat")
+	runIn(t, taskDir, func() {
+		err := cmdAdd([]string{"--base", "main", src})
+		if err == nil {
+			t.Fatal("expected error: --base main is missing a remote prefix")
+		}
+		if !strings.Contains(err.Error(), "<remote>/<branch>") {
+			t.Errorf("error should explain expected format, got: %v", err)
+		}
+	})
+}
+
+// TestCmdAdd_DefaultBaseUsesFirstRemote builds a repo whose only remote is
+// named "upstream" (not "origin") and whose default branch is "master" (not
+// "main"). Without --base, tsk should resolve the base via upstream/master.
+func TestCmdAdd_DefaultBaseUsesFirstRemote(t *testing.T) {
+	bare := filepath.Join(t.TempDir(), "remote.git")
+	if err := exec.Command("git", "init", "--bare", "-b", "master", bare).Run(); err != nil {
+		t.Fatal(err)
+	}
+	src := filepath.Join(t.TempDir(), "src")
+	if err := exec.Command("git", "clone", "-o", "upstream", bare, src).Run(); err != nil {
+		t.Fatalf("clone failed: %v", err)
+	}
+	mustRunGit(t, src, "config", "user.email", "test@example.com")
+	mustRunGit(t, src, "config", "user.name", "Test")
+	mustRunGit(t, src, "checkout", "-B", "master")
+	if err := os.WriteFile(filepath.Join(src, "README"), []byte("hi\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mustRunGit(t, src, "add", ".")
+	mustRunGit(t, src, "commit", "-m", "init")
+	mustRunGit(t, src, "push", "-u", "upstream", "master")
+	// `git push -u` doesn't set the remote HEAD on a clone of a previously-empty
+	// bare repo, so seed it explicitly — defaultBase falls back to ls-remote if
+	// this is missing, but we want to exercise the cheap symbolic-ref path too.
+	mustRunGit(t, src, "remote", "set-head", "upstream", "master")
+
+	tasks := t.TempDir()
+	runIn(t, tasks, func() {
+		if err := cmdCreate([]string{"feat"}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	taskDir := filepath.Join(tasks, "feat")
+	runIn(t, taskDir, func() {
+		if err := cmdAdd([]string{src}); err != nil {
+			t.Fatalf("default base detection failed: %v", err)
+		}
+	})
+
+	wt := filepath.Join(taskDir, filepath.Base(src))
+	if !isWorktree(wt) {
+		t.Errorf("expected worktree at %s", wt)
+	}
+	br, _ := runGit(wt, "branch", "--show-current")
+	if br != "feat" {
+		t.Errorf("branch = %q, want feat", br)
+	}
+}
+
+func TestParseRemoteBranch(t *testing.T) {
+	cases := []struct {
+		in           string
+		wantRemote   string
+		wantBranch   string
+		wantOK       bool
+	}{
+		{"origin/main", "origin", "main", true},
+		{"upstream/master", "upstream", "master", true},
+		{"origin/feature/foo", "origin", "feature/foo", true},
+		{"main", "", "", false},
+		{"/main", "", "", false},
+		{"origin/", "", "", false},
+		{"", "", "", false},
+	}
+	for _, c := range cases {
+		r, b, ok := parseRemoteBranch(c.in)
+		if r != c.wantRemote || b != c.wantBranch || ok != c.wantOK {
+			t.Errorf("parseRemoteBranch(%q) = (%q,%q,%v); want (%q,%q,%v)",
+				c.in, r, b, ok, c.wantRemote, c.wantBranch, c.wantOK)
+		}
+	}
+}
+
 func TestCmdRm(t *testing.T) {
 	_, src := makeRepoPair(t)
 
