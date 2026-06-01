@@ -62,6 +62,19 @@ on `tsk add` (or `tsk create` when using `-a`):
 tsk add ../../gobl.html --from develop
 ```
 
+When `--from` helps:
+
+- **Stacking on an unreleased feature branch.** Your task depends on a
+  colleague's change that is approved but not yet merged to `main`. Branching
+  off their feature branch keeps your diff focused on your own work instead
+  of dragging in theirs, and avoids the "merge their branch into mine, then
+  rebase later" dance.
+- **Working against a release/maintenance branch.** Hotfixes or backports
+  belong on top of `release/x.y`, not `main`.
+- **Long-lived integration branches.** When several tasks land into a shared
+  `develop` (or similar) before promotion, base new worktrees there so each
+  task starts from the state the integration branch is actually in.
+
 ## `tsk close` is paranoid by default
 
 Closing a task removes each worktree and deletes the task directory. Before doing
