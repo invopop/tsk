@@ -4,7 +4,7 @@ Multi-repo task workspaces backed by git worktrees.
 
 If your work routinely touches a handful of repos at once — services and the
 libraries they share — `tsk` automates the bootstrap: one task directory, one
-worktree per repo, all on a fresh branch off `origin/main`.
+worktree per repo, all on a fresh branch off each repo's default upstream.
 
 ## Install
 
@@ -54,15 +54,20 @@ Run `tsk create` wherever you want the task to live. The task directory's name i
 source repo by `tsk add` defaults to `<slug>` — the ref is **not** part of the
 branch name.
 
-The base branch defaults to `origin/main`. Override it with `--from <branch>`
-on `tsk add` (or `tsk create` when using `-a`):
+The base branch defaults to the first remote's default branch — e.g. on a
+typical clone, `origin/main`, but `tsk` follows whatever the repo is actually
+configured with (`upstream/master` works just the same). Override it with
+`--base <remote>/<branch>` on `tsk add` (or `tsk create` when using `-a`):
 
 ```sh
-# Base the new worktrees off origin/develop instead of origin/main.
-tsk add ../../gobl.html --from develop
+# Base the new worktrees off origin/develop instead of the default.
+tsk add ../../gobl.html --base origin/develop
 ```
 
-When `--from` helps:
+The full `<remote>/<branch>` form is required so it's never ambiguous whether
+you mean a local branch or a remote-tracking one.
+
+When `--base` helps:
 
 - **Stacking on an unreleased feature branch.** Your task depends on a
   colleague's change that is approved but not yet merged to `main`. Branching
@@ -79,7 +84,7 @@ Closing a task removes each worktree and deletes the task directory. Before doin
 that, `close` refuses to touch a worktree if either:
 
 - the working tree is dirty, or
-- the branch was never pushed, or has unpushed commits ahead of `origin/<branch>`.
+- the branch was never pushed, or has unpushed commits ahead of its upstream.
 
 This is the whole point: it is easy to forget that a worktree had local-only
 work. `--force` is the explicit escape hatch for the cases where you really do
@@ -88,9 +93,9 @@ want to discard.
 ## Commands
 
 ```
-tsk create [<ref>] <slug> [--from <branch>] [-a <repo>...]
+tsk create [<ref>] <slug> [--base <remote>/<branch>] [-a <repo>...]
                                    Create a task directory in cwd
-tsk add <repo-path> [...] [-b <branch>] [--from <branch>]
+tsk add <repo-path> [...] [-b <branch>] [--base <remote>/<branch>]
                                    Add worktrees to the current task
 tsk status                         git status summary across all worktrees
 tsk rm [-f] <repo-path>            Remove one worktree from the current task
