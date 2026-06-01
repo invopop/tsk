@@ -72,9 +72,9 @@ func usage(w *os.File) {
 	fmt.Fprint(w, `tsk — multi-repo task workspaces
 
 usage:
-  tsk create [<ref>] <slug> [--base <remote>/<branch>] [-a <repo-path> ...]
+  tsk create [--base <remote>/<branch>] [<ref>] <slug> [-a <repo-path> ...]
                                      Create a task directory in cwd
-  tsk add <repo-path> [<repo-path> ...] [-b <branch>] [--base <remote>/<branch>]
+  tsk add [--base <remote>/<branch>] [-b <branch>] <repo-path> [<repo-path> ...]
                                      Add worktrees to the current task
   tsk status                         git status summary across all worktrees
   tsk rm [-f] <repo-path>            Remove one worktree from the current task
@@ -114,7 +114,7 @@ func cmdCreate(args []string) error {
 	case 2:
 		ref, slug = rest[0], rest[1]
 	default:
-		return errors.New("usage: tsk create [<ref>] <slug> [--base <remote>/<branch>] [-a <repo-path> ...]")
+		return errors.New("usage: tsk create [--base <remote>/<branch>] [<ref>] <slug> [-a <repo-path> ...]")
 	}
 
 	if ref != "" && !validSlug(ref) {
@@ -175,7 +175,7 @@ func cmdAdd(args []string) error {
 	}
 	repos := flags.Args()
 	if len(repos) == 0 {
-		return errors.New("usage: tsk add <repo-path> [<repo-path> ...] [-b <branch>] [--base <remote>/<branch>]")
+		return errors.New("usage: tsk add [--base <remote>/<branch>] [-b <branch>] <repo-path> [<repo-path> ...]")
 	}
 
 	cwd, err := os.Getwd()

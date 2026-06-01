@@ -61,8 +61,7 @@ configured with (`upstream/master` works just the same). Override it with
 
 ```sh
 # Base the new worktrees off origin/develop instead of the default.
-tsk add ../../gobl.html --base origin/develop
-```
+tsk add --base origin/develop ../../gobl.html
 
 The full `<remote>/<branch>` form is required so it's never ambiguous whether
 you mean a local branch or a remote-tracking one.
