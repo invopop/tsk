@@ -1,4 +1,4 @@
-module github.com/cavalle/tsk
+module github.com/invopop/tsk
 
 go 1.26.2
 
